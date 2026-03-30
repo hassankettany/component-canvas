@@ -15,7 +15,13 @@ import {
   Eye,
   Code2,
   Search,
+  MousePointer2,
+  Pencil,
+  StickyNote,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { FOLDER_CHECKBOX_STYLES } from '@/constants/colors';
 import { ZOOM_LIMITS } from '@/constants/canvas';
 
@@ -30,6 +36,13 @@ export default function CanvasToolbar({
   setZoom,
   addComponent,
   onOpenFindReplace,
+  canvasMode,
+  setCanvasMode,
+  addStickyNote,
+  undo,
+  redo,
+  canUndo,
+  canRedo,
 }) {
   return (
     <>
@@ -141,6 +154,52 @@ export default function CanvasToolbar({
               </>
             )}
           </Button>
+
+          <div className="w-px h-4 bg-[#e5e5e5] mx-1" />
+
+          {/* Canvas Mode Selector */}
+          <div className="flex items-center bg-[#f5f5f5] rounded-md p-0.5 gap-px relative">
+            {[
+              { id: 'pointer', icon: MousePointer2, label: 'Pointer' },
+              { id: 'draw', icon: Pencil, label: 'Draw' },
+            ].map((mode) => {
+              const isActive = canvasMode === mode.id;
+              return (
+                <button
+                  key={mode.id}
+                  onClick={() => setCanvasMode(mode.id)}
+                  className="relative h-7 px-2.5 text-xs rounded-md flex items-center gap-1.5 cursor-pointer z-10 transition-colors duration-150"
+                  style={{ color: isActive ? '#171717' : '#a3a3a3', fontWeight: isActive ? 500 : 400 }}
+                  title={mode.label}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="canvasmode-indicator"
+                      className="absolute inset-0 bg-white rounded-md"
+                      transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-1.5">
+                    <mode.icon className="w-3.5 h-3.5" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="w-px h-4 bg-[#e5e5e5] mx-1" />
+
+          {/* Sticky Note */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-lg h-8 px-3 text-[#737373] hover:bg-slate-100/50 gap-2"
+            onClick={addStickyNote}
+            title="Add Sticky Note"
+          >
+            <StickyNote className="w-3.5 h-3.5" />
+            Note
+          </Button>
         </div>
 
         {/* Search Circle */}
@@ -157,6 +216,30 @@ export default function CanvasToolbar({
 
       {/* Floating Actions (Top Right) */}
       <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+        {/* Undo / Redo */}
+        <div className="flex items-center bg-white border border-[#e5e5e5] rounded-lg p-1 gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg hover:bg-slate-100/50 disabled:opacity-30"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (⌘Z)"
+          >
+            <Undo2 className="w-4 h-4 text-[#737373]" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg hover:bg-slate-100/50 disabled:opacity-30"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (⌘⇧Z)"
+          >
+            <Redo2 className="w-4 h-4 text-[#737373]" />
+          </Button>
+        </div>
+
         {/* Zoom Control */}
         <div className="flex items-center bg-white border border-[#e5e5e5] rounded-lg p-1">
           <Button

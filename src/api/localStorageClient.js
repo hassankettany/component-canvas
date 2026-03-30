@@ -64,5 +64,7 @@ export const base44 = {
     Folder: createEntity('canvas_folders'),
     Component: createEntity('canvas_components'),
     Comment: createEntity('canvas_comments'),
+    StickyNote: createEntity('canvas_sticky_notes'),
+    Stroke: createEntity('canvas_strokes'),
   },
 };

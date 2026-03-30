@@ -14,6 +14,14 @@ import ModeSwitcher from '../components/common/ModeSwitcher';
 import { GRID_SIZE, DEFAULT_COMPONENT_SIZE, LAYOUT_START } from '@/constants/canvas';
 import { DEFAULT_COMPONENT_HTML } from '@/constants/templates';
 import { base44 } from '@/api/localStorageClient';
+import { useStickyNotes } from '@/hooks/useStickyNotes';
+import { useStrokes } from '@/hooks/useStrokes';
+import { useUndoRedo } from '@/hooks/useUndoRedo';
+import StickyNote from '../components/canvas/StickyNote';
+import DrawingLayer from '../components/canvas/DrawingLayer';
+import DrawToolbar from '../components/canvas/DrawToolbar';
+import { AnimatePresence } from 'framer-motion';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function Canvas() {
   // --- Data hooks ---
@@ -26,11 +34,16 @@ export default function Canvas() {
     silentUpdate,
     silentBatchUpdate,
   } = useComponents();
+  const queryClient = useQueryClient();
+  const { stickyNotes: dbStickyNotes, createStickyNote, deleteStickyNote: deleteStickyNoteMutation, silentUpdateStickyNote } = useStickyNotes();
+  const { strokes: dbStrokes, createStroke, deleteStroke: deleteStrokeMutation } = useStrokes();
+  const { push: pushUndo, undo, redo, canUndo, canRedo } = useUndoRedo();
 
   // --- Refs ---
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const localComponentsRef = useRef([]);
+  const preInteractionRef = useRef({});
 
   // --- Canvas engine hooks ---
   const {
@@ -53,6 +66,12 @@ export default function Canvas() {
   const [globalMode, setGlobalMode] = useState('preview');
   const [maxZIndex, setMaxZIndex] = useState(1);
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
+  const [localStickyNotes, setLocalStickyNotes] = useState([]);
+  const [localStrokes, setLocalStrokes] = useState([]);
+  const [canvasMode, setCanvasMode] = useState('pointer');
+  const [drawColor, setDrawColor] = useState('#171717');
+  const [drawThickness, setDrawThickness] = useState(4);
+  const [selectedStrokeId, setSelectedStrokeId] = useState(null);
 
   // --- Effects ---
 
@@ -70,6 +89,14 @@ export default function Canvas() {
       }
     }
   }, [dbComponents]);
+
+  useEffect(() => {
+    if (dbStickyNotes) setLocalStickyNotes(dbStickyNotes);
+  }, [dbStickyNotes]);
+
+  useEffect(() => {
+    if (dbStrokes) setLocalStrokes(dbStrokes);
+  }, [dbStrokes]);
 
   // --- Layout hook ---
   const { reorganizeLayout } = useCanvasLayout({
@@ -103,6 +130,10 @@ export default function Canvas() {
   };
 
   const handleComponentUpdate = useCallback((id, updates) => {
+    if ((updates.position || updates.size) && !preInteractionRef.current[id]) {
+      const comp = localComponentsRef.current.find(c => c.id === id);
+      if (comp) preInteractionRef.current[id] = { position: { ...comp.position }, size: { ...comp.size } };
+    }
     const components = localComponentsRef.current;
     const { snappedUpdates, newGuides } = calculateSnap(id, updates, components);
     setGuides(newGuides);
@@ -119,15 +150,33 @@ export default function Canvas() {
     const comp = localComponentsRef.current.find((c) => c.id === id);
     if (comp) {
       silentUpdate(id, comp);
+      const before = preInteractionRef.current[id];
+      if (before) {
+        const after = { position: { ...comp.position }, size: { ...comp.size } };
+        pushUndo({
+          type: 'move-component',
+          undo: () => { silentUpdate(id, before); setLocalComponents(prev => prev.map(c => c.id === id ? { ...c, ...before } : c)); },
+          redo: () => { silentUpdate(id, after); setLocalComponents(prev => prev.map(c => c.id === id ? { ...c, ...after } : c)); },
+        });
+        delete preInteractionRef.current[id];
+      }
     }
-  }, [silentUpdate]);
+  }, [silentUpdate, pushUndo]);
 
   const deleteComponent = useCallback(
     (id) => {
+      const comp = localComponentsRef.current.find(c => c.id === id);
       setLocalComponents((prev) => prev.filter((comp) => comp.id !== id));
       deleteComponentMutation(id);
+      if (comp) {
+        pushUndo({
+          type: 'delete-component',
+          undo: () => { base44.entities.Component.create(comp); queryClient.invalidateQueries({ queryKey: ['components'] }); },
+          redo: () => { deleteComponentMutation(id); },
+        });
+      }
     },
-    [deleteComponentMutation]
+    [deleteComponentMutation, pushUndo, queryClient]
   );
 
   const bringToFront = useCallback(
@@ -166,7 +215,96 @@ export default function Canvas() {
     silentBatchUpdate(updates);
   };
 
+  // --- Sticky Note Handlers ---
+
+  const addStickyNote = () => {
+    const centerX = (-pan.x + window.innerWidth / 2) / zoom - 100;
+    const centerY = (-pan.y + window.innerHeight / 2) / zoom - 100;
+    const noteData = {
+      text: '',
+      position: { x: centerX, y: centerY },
+      size: { width: 200, height: 200 },
+      color: 'yellow',
+      zIndex: maxZIndex + 1,
+    };
+    base44.entities.StickyNote.create(noteData).then((created) => {
+      queryClient.invalidateQueries({ queryKey: ['stickyNotes'] });
+      pushUndo({
+        type: 'add-sticky',
+        undo: () => { base44.entities.StickyNote.delete(created.id); queryClient.invalidateQueries({ queryKey: ['stickyNotes'] }); },
+        redo: () => { base44.entities.StickyNote.create(noteData); queryClient.invalidateQueries({ queryKey: ['stickyNotes'] }); },
+      });
+    });
+    setMaxZIndex((p) => p + 1);
+  };
+
+  const handleStickyNoteUpdate = useCallback((id, updates) => {
+    setLocalStickyNotes((prev) => prev.map((n) => n.id === id ? { ...n, ...updates } : n));
+    silentUpdateStickyNote(id, updates);
+  }, [silentUpdateStickyNote]);
+
+  const handleDeleteStickyNote = useCallback((id) => {
+    const note = localStickyNotes.find(n => n.id === id);
+    setLocalStickyNotes((prev) => prev.filter((n) => n.id !== id));
+    deleteStickyNoteMutation(id);
+    if (note) {
+      pushUndo({
+        type: 'delete-sticky',
+        undo: () => { base44.entities.StickyNote.create(note); queryClient.invalidateQueries({ queryKey: ['stickyNotes'] }); },
+        redo: () => { base44.entities.StickyNote.delete(note.id); queryClient.invalidateQueries({ queryKey: ['stickyNotes'] }); },
+      });
+    }
+  }, [deleteStickyNoteMutation, pushUndo, queryClient, localStickyNotes]);
+
+  const bringStickyToFront = useCallback((id) => {
+    setLocalStickyNotes((prev) => {
+      const maxZ = Math.max(...prev.map(n => n.zIndex || 0), maxZIndex, 0) + 1;
+      silentUpdateStickyNote(id, { zIndex: maxZ });
+      return prev.map(n => n.id === id ? { ...n, zIndex: maxZ } : n);
+    });
+  }, [silentUpdateStickyNote, maxZIndex]);
+
+  // --- Stroke Handlers ---
+
+  const handleStrokeComplete = useCallback((strokeData) => {
+    base44.entities.Stroke.create({ ...strokeData, zIndex: 0 }).then((created) => {
+      queryClient.invalidateQueries({ queryKey: ['strokes'] });
+      pushUndo({
+        type: 'add-stroke',
+        undo: () => { base44.entities.Stroke.delete(created.id); queryClient.invalidateQueries({ queryKey: ['strokes'] }); },
+        redo: () => { base44.entities.Stroke.create(strokeData); queryClient.invalidateQueries({ queryKey: ['strokes'] }); },
+      });
+    });
+  }, [queryClient, pushUndo]);
+
+  const handleDeleteSelectedStroke = useCallback(() => {
+    if (!selectedStrokeId) return;
+    const stroke = localStrokes.find(s => s.id === selectedStrokeId);
+    setLocalStrokes((prev) => prev.filter(s => s.id !== selectedStrokeId));
+    deleteStrokeMutation(selectedStrokeId);
+    if (stroke) {
+      pushUndo({
+        type: 'delete-stroke',
+        undo: () => { base44.entities.Stroke.create(stroke); queryClient.invalidateQueries({ queryKey: ['strokes'] }); },
+        redo: () => { base44.entities.Stroke.delete(stroke.id); queryClient.invalidateQueries({ queryKey: ['strokes'] }); },
+      });
+    }
+    setSelectedStrokeId(null);
+  }, [selectedStrokeId, deleteStrokeMutation, pushUndo, queryClient, localStrokes]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedStrokeId && !e.target.closest('input, textarea, .cm-editor')) {
+        e.preventDefault();
+        handleDeleteSelectedStroke();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedStrokeId, handleDeleteSelectedStroke]);
+
   const handleMouseDown = (e) => {
+    setSelectedStrokeId(null);
     viewportMouseDown(e, canvasRef);
   };
 
@@ -214,13 +352,42 @@ export default function Canvas() {
         setZoom={setZoom}
         addComponent={addComponent}
         onOpenFindReplace={() => setIsFindReplaceOpen(true)}
+        canvasMode={canvasMode}
+        setCanvasMode={setCanvasMode}
+        addStickyNote={addStickyNote}
+        undo={undo}
+        redo={redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
+
+      <AnimatePresence>
+        {canvasMode === 'draw' && (
+          <DrawToolbar
+            color={drawColor}
+            thickness={drawThickness}
+            onColorChange={setDrawColor}
+            onThicknessChange={setDrawThickness}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Canvas Area */}
       <div
         className="absolute inset-0 origin-top-left will-change-transform"
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
       >
+        <DrawingLayer
+          strokes={localStrokes}
+          scale={zoom}
+          isDrawMode={canvasMode === 'draw'}
+          drawColor={drawColor}
+          drawThickness={drawThickness}
+          onStrokeComplete={handleStrokeComplete}
+          selectedStrokeId={selectedStrokeId}
+          onSelectStroke={setSelectedStrokeId}
+        />
+
         {localComponents.filter(isComponentVisible).map((component) => (
           <ComponentWindow
             key={component.id}
@@ -237,7 +404,19 @@ export default function Canvas() {
 
         <CanvasGuides guides={guides} zoom={zoom} />
 
-        {localComponents.length === 0 && <CanvasEmptyState />}
+        {localStickyNotes.map((note) => (
+          <StickyNote
+            key={note.id}
+            note={note}
+            onUpdate={handleStickyNoteUpdate}
+            onDelete={handleDeleteStickyNote}
+            onBringToFront={bringStickyToFront}
+            scale={zoom}
+            onDragEnd={clearGuides}
+          />
+        ))}
+
+        {localComponents.length === 0 && localStickyNotes.length === 0 && localStrokes.length === 0 && <CanvasEmptyState />}
       </div>
 
       <FindReplaceDialog
