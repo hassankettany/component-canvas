@@ -22,6 +22,7 @@ import DrawingLayer from '../components/canvas/DrawingLayer';
 import DrawToolbar from '../components/canvas/DrawToolbar';
 import { AnimatePresence } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCanvasSync } from '@/hooks/useCanvasSync';
 
 export default function Canvas() {
   // --- Data hooks ---
@@ -38,6 +39,7 @@ export default function Canvas() {
   const { stickyNotes: dbStickyNotes, createStickyNote, deleteStickyNote: deleteStickyNoteMutation, silentUpdateStickyNote } = useStickyNotes();
   const { strokes: dbStrokes, createStroke, deleteStroke: deleteStrokeMutation } = useStrokes();
   const { push: pushUndo, undo, redo, canUndo, canRedo } = useUndoRedo();
+  const { pushState } = useCanvasSync();
 
   // --- Refs ---
   const containerRef = useRef(null);
@@ -97,6 +99,11 @@ export default function Canvas() {
   useEffect(() => {
     if (dbStrokes) setLocalStrokes(dbStrokes);
   }, [dbStrokes]);
+
+  // Push canvas state to file bridge whenever local data changes
+  useEffect(() => {
+    pushState();
+  }, [localComponents, localStickyNotes, localStrokes]);
 
   // --- Layout hook ---
   const { reorganizeLayout } = useCanvasLayout({

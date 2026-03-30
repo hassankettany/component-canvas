@@ -31,3 +31,6 @@ dist-ssr
 
 # Superpowers brainstorm sessions
 .superpowers/
+
+# Canvas sync state
+.canvas/
