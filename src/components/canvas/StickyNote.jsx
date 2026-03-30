@@ -130,7 +130,6 @@ const StickyNote = memo(function StickyNote({ note, onUpdate, onDelete, onBringT
         cursor: isDragging ? 'move' : 'default',
         willChange: isInteracting ? 'left, top, width, height' : 'auto',
       }}
-      onPointerDown={handleDragStart}
       onPointerEnter={() => setIsHovered(true)}
       onPointerLeave={() => setIsHovered(false)}
     >
@@ -192,7 +191,21 @@ const StickyNote = memo(function StickyNote({ note, onUpdate, onDelete, onBringT
           </div>
         )}
 
-        {/* Resize handle */}
+        {/* Drag handle — bottom left */}
+        <div
+          className="absolute bottom-0 left-0 w-7 h-7 cursor-move flex items-center justify-center"
+          onPointerDown={handleDragStart}
+          title="Drag to move"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" style={{ opacity: 0.3, color: colors.text }}>
+            <circle cx="2" cy="2" r="1.2" fill="currentColor"/>
+            <circle cx="2" cy="5.5" r="1.2" fill="currentColor"/>
+            <circle cx="5.5" cy="2" r="1.2" fill="currentColor"/>
+            <circle cx="5.5" cy="5.5" r="1.2" fill="currentColor"/>
+          </svg>
+        </div>
+
+        {/* Resize handle — bottom right */}
         <div
           className="no-drag absolute bottom-0 right-0 w-6 h-6 cursor-se-resize"
           onPointerDown={handleResizeStart}

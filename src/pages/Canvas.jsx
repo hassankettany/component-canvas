@@ -305,6 +305,8 @@ export default function Canvas() {
 
   const handleMouseDown = (e) => {
     setSelectedStrokeId(null);
+    // Don't start panning when in draw mode
+    if (canvasMode === 'draw') return;
     viewportMouseDown(e, canvasRef);
   };
 

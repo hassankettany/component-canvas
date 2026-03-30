@@ -84,6 +84,9 @@ const DrawingLayer = memo(function DrawingLayer({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
     >
+      {/* Transparent hit area — SVG only receives events on drawn content without this */}
+      {isDrawMode && <rect x="-999999" y="-999999" width="1999998" height="1999998" fill="transparent" />}
+
       {/* Selection highlight filter */}
       <defs>
         <filter id="selected-stroke-shadow" x="-20%" y="-20%" width="140%" height="140%">
